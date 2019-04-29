@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+  <head>
+    <title>IL-2 Follow Up Study</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Joshua Wu and Wei Dai" />
+    <meta name="date" content="2019-04-29" />
+    <link href="libs/remark-css/default.css" rel="stylesheet" />
+    <link href="libs/remark-css/default-fonts.css" rel="stylesheet" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# IL-2 Follow Up Study
+## IL-2 group difference
+### Joshua Wu and Wei Dai
+### 2019-04-29
+
+---
+
+
+
+class: inverse, middle, center
+
+# Background
+
+---
+
+IL-2 was injected into those in the Intervention Arm in addition to Antiretroviral Therapy
+Control Group was just Antiretroviral Therapy
+
+--
+
+IL-2 increases CD4 count which should decrease the HIV viral load
+
+--
+
+- Is there a difference in the mean profiles of HIV viral load between the two trial arms?
+
+- Is there a significantly different odds of not getting a detectable HIV viral load between the two trial arms?
+
+---
+# Preliminaries
+
+
+```r
+library(readxl)
+library(haven)
+library(skimr)
+library(corrr);library(nlme);library(lme4)
+library(geepack)
+library(tidyverse)
+```
+
+
+
+---
+class: inverse, middle, center
+
+# Exploratory data analysis
+
+---
+
+# Data
+
+
+```
+##    grp         id wknum wknumc       date rtpcrnih
+## 1    A 22-11-43-9    14     14 1994-08-04    91170
+## 2    A 22-11-43-9    18     18 1994-11-14   111257
+## 3    A 22-11-43-9    24     24 1995-05-09   137673
+## 4    A 22-11-43-9    30     30 1995-10-31   108455
+## 5    A 22-11-43-9    36     36 1996-04-16    19571
+## 6    A 22-11-43-9    42     42 1996-10-08   142000
+## 7    A 22-11-43-9    48     48 1997-03-31    54892
+## 8    A 22-11-43-9    55     54 1997-10-15    93158
+## 9    A 22-11-43-9    60     60 1998-03-02   185743
+## 10   A 22-47-06-9    14     14 1995-01-31    40152
+```
+
+---
+
+# Normality of our Outcome
+
+RTPCRNIH was NOT a normal outcome variable
+
+![](presentation2_files/figure-html/unnamed-chunk-4-1.png)&lt;!-- --&gt;
+
+---
+
+# Normality of our Outcome continued
+
+Therefore we log-transformed it and obtained a better curve
+
+![](presentation2_files/figure-html/unnamed-chunk-5-1.png)&lt;!-- --&gt;
+
+---
+
+# Individual viral load plot
+
+![](presentation2_files/figure-html/unnamed-chunk-6-1.png)&lt;!-- --&gt;
+
+---
+
+# Individual viral load plot continued
+
+![](presentation2_files/figure-html/unnamed-chunk-7-1.png)&lt;!-- --&gt;
+---
+
+# log transformation
+
+![](presentation2_files/figure-html/unnamed-chunk-8-1.png)&lt;!-- --&gt;
+
+---
+
+# log transformation continued
+
+![](presentation2_files/figure-html/unnamed-chunk-9-1.png)&lt;!-- --&gt;
+
+---
+
+# Construct a groupedData Object(spread and gather)
+
+
+```r
+*hiv_grouped &lt;- groupedData(formula = rtpcrnih ~ wknumc | id, data = hivfu_raw[,-c(3, 5)], order.groups = F)
+```
+
+
+```r
+hiv_spread &lt;- hiv_grouped %&gt;% 
+  mutate(wknumc = paste0(wknumc)) %&gt;% 
+  spread(wknumc, rtpcrnih) 
+```
+
+
+```r
+hiv_gather &lt;- hiv_spread %&gt;% 
+  gather(`14`, `18`, `24`, `30`, `36`, `42`, `48`, `54`, `60`, key = wknumc, value =  rtpcrnih) %&gt;% 
+  mutate(wknumc = as.numeric(wknumc)) %&gt;% 
+  arrange(grp, id)
+```
+
+---
+class: inverse, middle, center
+
+# Visualization
+
+---
+
+# Counts within group
+
+
+```r
+hiv_spread %&gt;%
+  count(grp)
+```
+
+```
+## # A tibble: 2 x 2
+##   grp       n
+##   &lt;chr&gt; &lt;int&gt;
+## 1 A        29
+## 2 B        29
+```
+---
+
+# Check for missingness
+
+![](presentation2_files/figure-html/unnamed-chunk-14-1.png)&lt;!-- --&gt;
+
+--
+
+The plot shows the missingness of each individual. Each id should have 9 complete viral load measurements. Here, I set the threadhold as n = 3. For individual has 3 or less recorded measurements will be excluded from the analysis.
+
+---
+
+# Check for missingness continued 
+
+
+```
+## # A tibble: 6 x 11
+## # Groups:   id [6]
+##   grp   id           `14`   `18`  `24`  `30`  `36`  `42`  `48`  `54`  `60`
+##   &lt;chr&gt; &lt;fct&gt;       &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1 A     26-56-01-2 180371 134910    NA    NA    NA    NA    NA    NA    NA
+## 2 B     19-24-17-5  39341 170498    NA    NA    NA    NA    NA    NA    NA
+## 3 B     26-09-94-0 541222     NA    NA    NA    NA    NA    NA    NA    NA
+## 4 B     26-56-12-7  43196  13393    NA    NA    NA    NA    NA    NA    NA
+## 5 B     26-58-23-9  45338   9213 14549    NA    NA    NA    NA    NA    NA
+## 6 B     26-97-07-5  60248     NA    NA    NA    NA    NA    NA    NA    NA
+```
+
+--
+
+- Here, we can see that the individuals excluded from analysis are severe cases. I think here we have sufficient reasons to assume that these individal have died or dropped out. There is no reason to impute these large numbers. 
+
+--
+
+- The drawback is that group B has 5 excluded and A has 1. That might cause problems in the following analysis.
+
+---
+# Summary statistics before transformation
+
+
+```
+## # A tibble: 9 x 6
+##   wknumc   min median   mean     max missing
+##    &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;
+## 1     14    49 16082. 63038.  541222       0
+## 2     18    49 13216  60049. 1135625       4
+## 3     24    49 14549  40912.  304743       5
+## 4     30    49  9309  42323.  553557       6
+## 5     36    49  3051  16524.  152592      11
+## 6     42    49  1556  13410.  165500      10
+## 7     48    49  1705  12645.  197500      15
+## 8     54    49   372  13100.  207156      19
+## 9     60    49   577  32857.  185743      43
+```
+
+--
+
+Here, the untransformed mean is much larger than median. We can tell that the distribution of viral load is right skewed. 
+
+---
+
+# Summary statistics after transformation
+
+
+```
+## # A tibble: 9 x 6
+##   wknumc   min median  mean   max missing
+##    &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt;
+## 1     14  3.89   9.69  9.56  13.2       0
+## 2     18  3.89   9.49  9.18  13.9       4
+## 3     24  3.89   9.59  9.06  12.6       5
+## 4     30  3.89   9.14  8.73  13.2       6
+## 5     36  3.89   8.02  7.60  11.9      11
+## 6     42  3.89   7.34  7.13  12.0      10
+## 7     48  3.89   7.44  6.97  12.2      15
+## 8     54  3.89   5.92  6.37  12.2      19
+## 9     60  3.89   6.36  7.04  12.1      43
+```
+--
+
+The mean and median after log transformation are much closer to each other than untransformed. This indicates that a log transformation is a better option. 
+---
+
+# mean plots
+
+![](presentation2_files/figure-html/unnamed-chunk-18-1.png)&lt;!-- --&gt;
+
+---
+
+# after log transformation
+
+![](presentation2_files/figure-html/unnamed-chunk-19-1.png)&lt;!-- --&gt;
+
+---
+class: inverse, middle, center
+
+# Imputation
+
+---
+
+# A glance at the missing value
+
+
+
+
+```
+##        14    18     24    30    36    42    48     54 60
+## 30     96   167    260   227    49    49    49     49 NA
+## 31  16177 24535  21100  5909 20829  3463    NA     NA NA
+## 32   5613 58079  18523 11306 11850  2851  2588  12344 NA
+## 33 105304 75515    116    53    49    49    49     49 NA
+## 34   3511  8122   5505  3927    NA    49    49     NA NA
+## 35  12024 21258   8348  6191  8255 18247    49     49 NA
+## 36  33701 52499 104208 53040  6395  8640 57256 207156 NA
+## 37    229  2275  16457   197   176   790    NA     49 NA
+## 38   2039  6720   3944  1937  9510  3611  5677    869 NA
+## 39   1169   505    505  3046 12412    59  1705   5749 NA
+```
+---
+
+# Missingness
+
+Our data had mostly Monotone, but had some non-Monotone missing data
+
+
+FCS Multiple Imputation Predictive Mean Matching was selected
+
+
+Imputed on Long Data (Time, Log Viral Load, Group)
+
+By performing Multiple Imputation we can obtain a valid inference on MAR.
+We do not have to assume MCAR, a strong assumption that may not be plausible
+
+
+
+
+```
+## Warning: Number of logged events: 251
+```
+
+
+
+---
+
+# Strategy for imputation
+
+--
+
+- Delete patient with 3 or less repeated measurements(6 patients)
+
+--
+
+- I assume the NAs after 49 are still 49. (patients don't show up once their conditions get better)
+
+--
+
+- Log transform the viral load.
+
+--
+
+- Multiple impulation to the missing values.
+
+---
+class: inverse, middle, center
+
+# Simpler Methods
+
+--
+
+Difference in Group Mean (t-test)
+
+--
+
+Difference in Group Mean Slope (OLS)
+
+--
+
+Difference in Group Means over Time (RM-ANOVA)
+
+
+---
+
+# Group Mean
+
+![](img/group mean.png)
+
+---
+
+# Slope
+
+![](img/slope.png)
+
+
+```r
+""
+```
+
+```
+## [1] ""
+```
+
+
+---
+
+class: inverse, middle, center
+
+# repeated measures ANOVA
+
+![]()
+
+---
+
+# means plot
+
+![](presentation2_files/figure-html/unnamed-chunk-26-1.png)&lt;!-- --&gt;
+
+---
+
+# Correlation martix
+
+
+```
+##   rowname  X14  X18  X24  X30  X36  X42  X48  X54  X60
+## 1      14 1.00  .25  .48  .32  .39  .42  .45  .22  .55
+## 2      18      1.00  .34  .08  .38  .52  .14  .13  .06
+## 3      24           1.00  .81  .58  .66  .71  .40  .57
+## 4      30                1.00  .63  .56  .72  .16  .45
+## 5      36                     1.00  .65  .65  .06  .31
+## 6      42                          1.00  .70  .36  .74
+## 7      48                               1.00  .85  .62
+## 8      54                                    1.00 1.00
+## 9      60                                         1.00
+```
+
+---
+
+![](presentation2_files/figure-html/unnamed-chunk-28-1.png)&lt;!-- --&gt;
+
+---
+
+# rm ANOVA result
+
+
+
+
+```
+##                    numDF denDF  F-value p-value
+## (Intercept)            1   400 798.6509  &lt;.0001
+## grp                    1    50   0.7453  0.3921
+## factor(wknumc)         8   400  28.3415  &lt;.0001
+## grp:factor(wknumc)     8   400   0.9868  0.4457
+```
+
+---
+# Final Methods
+
+--
+
+MANOVA
+
+--
+
+Linear Mixed Effects Model
+
+--
+
+GEE
+
+---
+
+# MANOVA
+
+---
+
+# Output of MANOVA
+
+![](img/manova.png)
+
+---
+class: inverse, middle, center
+
+# linear mixed effect model
+---
+
+# linear mixed effect model
+
+Determining whether or not Interaction Term is Required
+
+LRT performed
+--
+
+ With Interaction    1863.6
+
+--
+
+Without Interaction  1857.5
+
+--
+
+With a difference of 6.1 and df = 1, Interaction term is required in the model (0.01352)
+
+---
+
+Determining whether or not the random slope is required
+
+LRT performed
+
+--
+
+ With Slope        1863.6
+ 
+--
+
+ Without Slope  1863.6
+
+--
+
+It would seem that there is no significant difference between the models. Model with slope has better R2, but the Model without the slope has a better AIC and BIC.
+
+---
+
+# Output from SAS
+
+![](img/lmer.png)
+
+---
+
+# intercept only
+
+--
+lmer(formular = outcome ~ fixed effect + (random effect | id))
+
+--
+
+
+
+Here, I recode `wknumc` - 14 as `time` so that month 14 can be the baseline and can be better interpreted through the intercept. 
+--
+
+
+```r
+lme_ict &lt;- lmer(formula = lvload ~ 1 + time + grp + (1 |id), data = imp_gather, REML = T)
+```
+---
+
+# intercept only continued
+
+
+```
+## Linear mixed model fit by REML ['lmerMod']
+## Formula: lvload ~ 1 + time + grp + (1 | id)
+##    Data: imp_gather
+## 
+## REML criterion at convergence: 1926.6
+## 
+## Scaled residuals: 
+##     Min      1Q  Median      3Q     Max 
+## -2.7527 -0.6692  0.0463  0.6256  3.2147 
+## 
+## Random effects:
+##  Groups   Name        Variance Std.Dev.
+##  id       (Intercept) 3.717    1.928   
+##  Residual             2.655    1.629   
+## Number of obs: 468, groups:  id, 52
+## 
+## Fixed effects:
+##              Estimate Std. Error t value
+## (Intercept)  9.258435   0.394314  23.480
+## time        -0.073376   0.004969 -14.766
+## grpB         0.481032   0.557189   0.863
+## 
+## Correlation of Fixed Effects:
+##      (Intr) time  
+## time -0.280       
+## grpB -0.652  0.000
+```
+
+---
+
+# intercept only continued
+
+
+
+![](presentation2_files/figure-html/unnamed-chunk-35-1.png)&lt;!-- --&gt;
+
+---
+
+# random effect of intercept and time 
+
+
+```r
+lme_time &lt;- lmer(formula = lvload ~ 1 + time * grp + (time ||id), data = imp_gather, REML = )
+```
+
+---
+
+# int and time continued 
+
+
+```
+## Linear mixed model fit by REML ['lmerMod']
+## Formula: lvload ~ 1 + time * grp + ((1 | id) + (0 + time | id))
+##    Data: imp_gather
+## 
+## REML criterion at convergence: 1924.7
+## 
+## Scaled residuals: 
+##     Min      1Q  Median      3Q     Max 
+## -2.8430 -0.6186  0.0529  0.5879  3.2077 
+## 
+## Random effects:
+##  Groups   Name        Variance  Std.Dev.
+##  id       (Intercept) 3.4020678 1.84447 
+##  id.1     time        0.0007865 0.02804 
+##  Residual             2.4548644 1.56680 
+## Number of obs: 468, groups:  id, 52
+## 
+## Fixed effects:
+##              Estimate Std. Error t value
+## (Intercept)  9.356991   0.390108  23.986
+## time        -0.077811   0.008396  -9.268
+## grpB         0.267495   0.574224   0.466
+## time:grpB    0.009609   0.012359   0.778
+## 
+## Correlation of Fixed Effects:
+##           (Intr) time   grpB  
+## time      -0.288              
+## grpB      -0.679  0.195       
+## time:grpB  0.195 -0.679 -0.288
+```
+
+---
+
+# int and time continued 
+
+
+
+![](presentation2_files/figure-html/unnamed-chunk-39-1.png)&lt;!-- --&gt;
+---
+
+# lmer comparsion
+
+
+```r
+anova(lme_ict, lme_time)
+```
+
+```
+## refitting model(s) with ML (instead of REML)
+```
+
+```
+## Data: imp_gather
+## Models:
+## lme_ict: lvload ~ 1 + time + grp + (1 | id)
+## lme_time: lvload ~ 1 + time * grp + ((1 | id) + (0 + time | id))
+##          Df    AIC    BIC  logLik deviance  Chisq Chi Df Pr(&gt;Chisq)  
+## lme_ict   5 1927.8 1948.5 -958.89   1917.8                           
+## lme_time  7 1923.2 1952.3 -954.61   1909.2 8.5544      2    0.01388 *
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+```
+
+---
+
+`\(R^2\)`
+
+
+```
+##            R2m       R2c
+## [1,] 0.1691376 0.6538199
+```
+
+```
+##            R2m       R2c
+## [1,] 0.1685245 0.6823585
+```
+
+---
+
+# Checking model assumption
+
+![](presentation2_files/figure-html/unnamed-chunk-42-1.png)&lt;!-- --&gt;
+
+---
+class: inverse, middle, center
+
+# Dichotomous outcome
+
+
+
+---
+
+# A look at the outcome
+
+
+ grp    vcat     n  
+-----  ------  -----
+  A      0      197 
+  A      1      55  
+  B      0      171 
+  B      1      45  
+
+
+```
+## # A tibble: 9 x 2
+##    time   prop
+##   &lt;dbl&gt;  &lt;dbl&gt;
+## 1     0 0.0192
+## 2     4 0.0769
+## 3    10 0.0962
+## 4    16 0.0962
+## 5    22 0.192 
+## 6    28 0.25  
+## 7    34 0.346 
+## 8    40 0.385 
+## 9    46 0.462
+```
+
+Here, I code viral load measurement &lt; 49 as "1" because it's the good outcome and the result we expect.
+
+---
+
+# GLMM
+
+
+```r
+#e &lt;- glmer(vcat ~  time * grp + ( | id), data = imp_gather, family = "binomial")
+```
+
+I tried to use GLMM, but the model failed to converge and has very large eigenvalue.
+
+---
+class: inverse, middle, center
+
+# GEE
+---
+
+# Output from SAS
+
+![](img/gee.png)
+
+---
+
+# GEE
+
+
+```r
+gee_ind &lt;- geeglm(vcat ~  1 + time *grp, data = imp_gather, id = id, family = "binomial", scale.fix = T)
+
+gee_ex &lt;- geeglm(vcat ~  1 + time *grp, data = imp_gather, id = id, family = "binomial", scale.fix = T, corstr = "exchangeable")
+
+gee_ar1 &lt;- geeglm(vcat ~  1 + time *grp, data = imp_gather, id = id, family = "binomial", scale.fix = T, corstr = "ar1")
+
+gee_unstr &lt;- geeglm(vcat ~  1 + time *grp, data = imp_gather, id = id, family = "binomial", scale.fix = T, corstr = "unstr")
+```
+
+
+```r
+list(gee_ind, gee_ex, gee_ar1, gee_unstr) %&gt;% 
+  map(MuMIn::QIC)
+```
+
+```
+## [[1]]
+##      QIC 
+## 450.8981 
+## 
+## [[2]]
+##      QIC 
+## 454.8306 
+## 
+## [[3]]
+##      QIC 
+## 450.4746 
+## 
+## [[4]]
+##          QIC 
+## 7.443201e+31
+```
+
+---
+
+# GEE summary
+
+
+```
+## 
+## Call:
+## geeglm(formula = vcat ~ 1 + time * grp, family = "binomial", 
+##     data = imp_gather, id = id, corstr = "ar1", scale.fix = T)
+## 
+##  Coefficients:
+##             Estimate  Std.err   Wald Pr(&gt;|W|)    
+## (Intercept) -3.27347  0.88924 13.551 0.000232 ***
+## time         0.07284  0.02148 11.500 0.000696 ***
+## grpB         0.46033  0.98804  0.217 0.641286    
+## time:grpB   -0.02010  0.02366  0.722 0.395455    
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+## 
+## Scale is fixed.
+## 
+## Correlation: Structure = ar1  Link = identity 
+## 
+## Estimated Correlation Parameters:
+##       Estimate Std.err
+## alpha   0.8173 0.04407
+## Number of clusters:   52   Maximum cluster size: 9
+```
+
+---
+
+# Visualization
+
+![](presentation2_files/figure-html/unnamed-chunk-49-1.png)&lt;!-- --&gt;
+
+---
+class: inverse, middle, center
+
+# Summary
+---
+
+Research Question
+
+- Does IL-2(grp A) has an significant effect on HIV viral load("rtpcrnih") than control group(grp B) from 14 months post-randomization onwards?
+
+--
+
+We use repeated measures ANOVA, linear mixed effect model and GEE to find out if there is a difference in effect between 2 treatment groups. 
+
+--
+
+All evidence suggests that there is not a significant effect between treatments. 
+
+--
+
+The treatment effect is slightly better for grp A. IL-2(Grp A) does not have an significant effect in reducing HIV viral load from mth 14 to 60 than group B.
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();</script>
+
+<script>
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
